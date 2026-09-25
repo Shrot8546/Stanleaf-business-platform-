@@ -6,13 +6,16 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     PROJECT_NAME: str = "Stanleaf"
     PROJECT_DESCRIPTION: str = "Business Health Intelligence Platform API"
-    VERSION: str = "0.1.0"
+    VERSION: str = "0.2.0"
     API_V1_PREFIX: str = "/api/v1"
 
     ENVIRONMENT: str = "development"
     LOG_LEVEL: str = "info"
     BACKEND_HOST: str = "0.0.0.0"
     BACKEND_PORT: int = 8000
+
+    # PostgreSQL Database URL
+    DATABASE_URL: str = "postgresql://stanleaf:stanleaf@localhost:5432/stanleaf"
 
     # Comma-separated or List of origins allowed for CORS
     CORS_ORIGINS: Union[List[str], str] = [

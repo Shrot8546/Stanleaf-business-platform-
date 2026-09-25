@@ -1,6 +1,6 @@
 import React from "react";
 import Link from "next/link";
-import { Activity, Layers, ShieldCheck } from "lucide-react";
+import { Activity, Building2, ShieldCheck } from "lucide-react";
 
 export function Header() {
   return (
@@ -22,20 +22,23 @@ export function Header() {
         </Link>
 
         {/* Navigation / Links */}
-        <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-600">
-          <span className="flex items-center gap-1.5 text-slate-900 font-semibold">
-            <Layers className="w-4 h-4 text-emerald-600" /> Architecture Foundation
-          </span>
+        <nav className="flex items-center gap-4 sm:gap-6 text-sm font-medium text-slate-600">
+          <Link
+            href="/onboarding"
+            className="flex items-center gap-1.5 text-emerald-700 hover:text-emerald-800 font-semibold px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100/80 transition-colors border border-emerald-200/60 text-xs sm:text-sm"
+          >
+            <Building2 className="w-4 h-4 text-emerald-600" /> Register Business
+          </Link>
           <a
             href="http://localhost:8000/docs"
             target="_blank"
             rel="noopener noreferrer"
-            className="hover:text-emerald-600 transition-colors"
+            className="hidden sm:inline-block hover:text-emerald-600 transition-colors text-xs sm:text-sm"
           >
             API Docs
           </a>
-          <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/60 flex items-center gap-1">
-            <ShieldCheck className="w-3.5 h-3.5" /> v0.1.0 Core
+          <span className="hidden sm:flex px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200 items-center gap-1">
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" /> v0.2.0 Core
           </span>
         </nav>
       </div>

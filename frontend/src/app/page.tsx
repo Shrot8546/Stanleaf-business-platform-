@@ -1,4 +1,5 @@
 import React from "react";
+import Link from "next/link";
 import {
   Calculator,
   LineChart,
@@ -8,6 +9,7 @@ import {
   Cpu,
   Layers,
   Sparkles,
+  Building2,
 } from "lucide-react";
 import { HealthStatusBadge } from "@/components/HealthStatusBadge";
 import { ArchitectureCard } from "@/components/ArchitectureCard";
@@ -85,11 +87,30 @@ export default function HomePage() {
         </p>
 
         {/* Vision Narrative */}
-        <p className="max-w-2xl mx-auto text-base sm:text-lg text-slate-500 leading-relaxed mb-10">
+        <p className="max-w-2xl mx-auto text-base sm:text-lg text-slate-500 leading-relaxed mb-8">
           A startup-grade intelligence platform engineered to analyze business performance,
           calculate an explainable Business Health Score, benchmark against comparable peers,
           and surface actionable operational strategies.
         </p>
+
+        {/* Call to Action Buttons */}
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-10">
+          <Link
+            href="/onboarding"
+            className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm transition-colors shadow-sm"
+          >
+            <Building2 className="w-4 h-4" />
+            <span>Register a Business</span>
+          </Link>
+          <a
+            href="http://localhost:8000/docs"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 px-6 py-3 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 font-semibold text-sm transition-colors"
+          >
+            <span>Explore API Docs</span>
+          </a>
+        </div>
 
         {/* Live Backend Health Status Badge */}
         <HealthStatusBadge />

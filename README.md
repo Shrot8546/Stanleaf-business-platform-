@@ -2,7 +2,7 @@
 
 > **"Business Intelligence, Simplified."**
 
-**Stanleaf** is a startup-grade Business Health Intelligence platform designed to analyze small, medium, and growing enterprises using public registry/market data and owner-provided financial and operational metrics. 
+**Stanleaf** is a startup-grade Business Health Intelligence platform designed to analyze small, medium, and growing enterprises using public market data and owner-provided financial and operational metrics. 
 
 The platform calculates an **explainable Business Health Score**, benchmarks organizations against comparable industry cohorts, identifies operational risks, predicts financial trends, and surfaces actionable management recommendations.
 
@@ -12,7 +12,13 @@ The platform calculates an **explainable Business Health Score**, benchmarks org
 
 Stanleaf is architected as a Computer Science Engineering (CSE) final-year capstone project specializing in **Data Science and Big Data Analytics**. 
 
-To satisfy rigorous academic and software engineering standards, the architecture strictly separates the **Data Science & Analytics Engine** from the web API backend, database, and presentation layers. Data ingestion, wrangling, feature engineering, statistical cohort benchmarking, and deterministic scoring models are completely decoupled from UI and network transport concerns.
+The architecture strictly separates concerns:
+- **Presentation Layer**: Next.js App Router, Tailwind CSS, TypeScript.
+- **API & Domain Layer**: FastAPI, Pydantic v2, SQLAlchemy 2.0, Repository pattern.
+- **Persistence Layer**: PostgreSQL relational database with versioned Alembic migrations.
+- **Data Science & Big Data Layer (`data-engine/`)**: Ingestion adapters, data cleaning, feature stores, cohort analytics, and deterministic scoring models.
+- **Machine Learning Layer (`ml/`)**: Model training, serializations, and SHAP explainability.
+- **Local AI & NLP Layer (`ai/`)**: Self-hosted Ollama for local qualitative insights.
 
 ---
 
@@ -22,11 +28,11 @@ To satisfy rigorous academic and software engineering standards, the architectur
 | :--- | :--- |
 | **Frontend** | [Next.js](https://nextjs.org/) (v14+ App Router), [TypeScript](https://www.typescriptlang.org/), [Tailwind CSS](https://tailwindcss.com/), [Lucide React](https://lucide.dev/) |
 | **Backend** | [Python 3.12](https://www.python.org/), [FastAPI](https://fastapi.tiangolo.com/), [Uvicorn](https://www.uvicorn.org/), [Pydantic v2](https://docs.pydantic.dev/) |
+| **Database & ORM** | [PostgreSQL 16](https://www.postgresql.org/), [SQLAlchemy 2.0](https://www.sqlalchemy.org/), [Alembic](https://alembic.sqlalchemy.org/) |
 | **Data Engine & Analytics** | Python, [Pandas](https://pandas.pydata.org/) / [Polars](https://pola.rs/), [NumPy](https://numpy.org/) |
 | **Machine Learning** | [Scikit-learn](https://scikit-learn.org/), [XGBoost](https://xgboost.readthedocs.io/), [SHAP](https://shap.readthedocs.io/) |
 | **Local AI & NLP** | [Ollama](https://ollama.ai/) (Llama 3.1), [Hugging Face Transformers](https://huggingface.co/) |
-| **Database** | [PostgreSQL](https://www.postgresql.org/) (Relational Core, Time-Series & Cohort Indices) |
-| **Infrastructure** | Docker, Git, Pytest |
+| **Infrastructure** | Docker, Docker Compose, Git, Pytest |
 
 ---
 
@@ -36,12 +42,14 @@ To satisfy rigorous academic and software engineering standards, the architectur
 stanleaf/
 ├── frontend/                     # Next.js 14 App Router + TypeScript + Tailwind CSS
 │   ├── src/
-│   │   ├── app/                  # App Router pages, layout, and global CSS
+│   │   ├── app/                  # App Router pages (/, /onboarding), layout, styles
 │   │   │   ├── globals.css
 │   │   │   ├── layout.tsx        # Responsive root layout with Header & Footer
-│   │   │   └── page.tsx          # Hero page, status check, architectural pillars
-│   │   ├── components/           # Modular UI components (Header, Footer, Badges, Cards)
-│   │   └── lib/                  # API client, TypeScript interfaces, and utilities
+│   │   │   ├── page.tsx          # Landing hero page + status indicator
+│   │   │   └── onboarding/
+│   │   │       └── page.tsx      # Business Onboarding form & success state
+│   │   ├── components/           # Header, Footer, HealthStatusBadge, ArchitectureCard
+│   │   └── lib/                  # API client (Health & Business CRUD methods)
 │   ├── package.json
 │   ├── tsconfig.json
 │   ├── tailwind.config.ts
@@ -50,45 +58,60 @@ stanleaf/
 │   └── .gitignore
 │
 ├── backend/                      # Python FastAPI asynchronous backend
+│   ├── alembic/                  # Database migration management
+│   │   ├── env.py                # Dynamic configuration & Base.metadata binding
+│   │   └── versions/             # Versioned schema migrations
+│   │       └── 001_create_businesses_table.py
 │   ├── app/
-│   │   ├── api/
-│   │   │   └── v1/               # Versioned API endpoints
-│   │   │       ├── endpoints/
-│   │   │       │   └── health.py # Health check API with system metadata
-│   │   │       └── router.py     # Aggregated v1 routing table
+│   │   ├── api/v1/               # Versioned REST API endpoints
+│   │   │   ├── endpoints/
+│   │   │   │   ├── health.py     # Health check API
+│   │   │   │   └── businesses.py # Business registration & query endpoints
+│   │   │   └── router.py         # Aggregated v1 routing table
 │   │   ├── core/
 │   │   │   ├── config.py         # Type-safe configuration via Pydantic Settings
-│   │   │   └── cors.py           # Configured CORS middleware for frontend communication
+│   │   │   ├── cors.py           # CORS policies allowing frontend communication
+│   │   │   └── database.py       # SQLAlchemy engine, SessionLocal, get_db()
+│   │   ├── models/               # SQLAlchemy ORM models
+│   │   │   └── business.py       # Business entity table definition
+│   │   ├── repositories/         # Data access repository layer
+│   │   │   └── business.py       # Encapsulated Business CRUD operations
+│   │   ├── schemas/              # Pydantic validation & response schemas
+│   │   │   └── business.py       # BusinessBase, BusinessCreate, BusinessResponse
 │   │   └── main.py               # FastAPI application lifecycle and entrypoint
 │   ├── requirements.txt          # Python backend dependencies
+│   ├── alembic.ini               # Alembic configuration
 │   ├── .env.example
 │   └── .gitignore
 │
 ├── data-engine/                  # Data Science & Big Data Analytics Layer
-│   ├── ingestion/                # Data connectors (public registries, owner uploads)
+│   ├── ingestion/                # External data adapters & upload schemas
 │   ├── cleaning/                 # Data deduplication, sanitization, and imputation
 │   ├── features/                 # Financial ratios, operational velocity features
-│   ├── analytics/                # Cohort aggregation, statistical distribution percentiles
-│   └── scoring/                  # Mathematical, explainable Business Health Score formula
+│   ├── analytics/                # Cohort aggregation, statistical distributions
+│   └── scoring/                  # Mathematical explainable health score formula
 │
-├── ml/                           # Machine Learning Layer
-│   ├── models/                   # Serialized model registries (.joblib, .onnx)
-│   ├── training/                 # Model training pipelines & hyperparameter tuning
-│   └── evaluation/               # Cross-validation, metric tracking, explainability (SHAP)
+├── ml/                           # Machine Learning Layer (scikit-learn, XGBoost)
+│   ├── models/                   # Model registry and serialized artifacts
+│   ├── training/                 # Model training pipelines
+│   └── evaluation/               # Metrics tracking, validation, SHAP explainability
 │
-├── ai/                           # Local AI & NLP Layer
-│   └── ollama/                   # Local LLM service config, prompt templates, docker compose
+├── ai/                           # Local AI & NLP Layer (Ollama)
+│   └── ollama/                   # Local LLM service config, prompt templates
 │
-├── database/                     # PostgreSQL storage & migrations
-│   ├── schema/                   # PostgreSQL DDL schemas (businesses, metrics, scores)
+├── database/                     # PostgreSQL storage blueprints
+│   ├── schema/                   # PostgreSQL DDL schemas
 │   │   └── 001_initial_schema.sql
-│   └── migrations/               # Database versioned migration scripts
+│   └── migrations/               # Database migrations reference
 │
-├── notebooks/                    # Jupyter notebooks for exploratory data analysis (EDA)
+├── notebooks/                    # Jupyter notebooks for EDA and prototyping
 ├── tests/                        # Automated testing suite
-│   ├── backend/                  # API endpoint tests (FastAPI + AsyncClient + Pytest)
-│   └── data_engine/              # Data science pipeline tests
+│   ├── backend/
+│   │   ├── test_health.py        # Health endpoint tests
+│   │   └── test_businesses.py    # Business registration & validation tests
+│   └── data_engine/
 │
+├── docker-compose.yml            # PostgreSQL 16 container definition
 ├── .gitignore                    # Global git ignore configuration
 ├── .env.example                  # Consolidated environment variable template
 └── README.md                     # Documentation & setup guide
@@ -96,116 +119,159 @@ stanleaf/
 
 ---
 
-## Getting Started Locally
+## Database Model: Business
+
+The core domain entity `businesses` is defined as follows:
+
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `id` | `UUID` | Primary Key, Indexed | Auto-generated unique identifier |
+| `name` | `VARCHAR(255)` | NOT NULL, Indexed | Business name |
+| `industry` | `VARCHAR(255)` | NOT NULL, Indexed | Industry / Sector |
+| `location` | `VARCHAR(255)` | NOT NULL | City, Country, or Region |
+| `website` | `VARCHAR(500)` | Nullable | Validated URL format |
+| `business_age_years` | `INT` | Nullable, $\ge 0$ | Operating age in years |
+| `revenue_range` | `VARCHAR(100)` | Nullable | Revenue bracket |
+| `employee_count` | `INT` | Nullable, $\ge 0$ | Total headcount |
+| `customer_count` | `INT` | Nullable, $\ge 0$ | Active customer count |
+| `marketing_spend_monthly` | `FLOAT` | Nullable, $\ge 0$ | Monthly marketing expenditure |
+| `created_at` | `TIMESTAMPTZ` | NOT NULL, Default `now()` | Record creation timestamp |
+| `updated_at` | `TIMESTAMPTZ` | NOT NULL, Default `now()` | Auto-updated modification timestamp |
+
+---
+
+## API Endpoints
+
+### Business Endpoints
+
+| Method | Endpoint | Description | Status Code |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/api/v1/businesses` | Register and persist a new business | `201 Created` |
+| `GET` | `/api/v1/businesses` | List registered businesses (paginated) | `200 OK` |
+| `GET` | `/api/v1/businesses/{id}` | Get business details by UUID | `200 OK` / `404 Not Found` |
+
+#### Example Business Creation Request:
+`POST /api/v1/businesses`
+```json
+{
+  "name": "Apex Health Technologies",
+  "industry": "Healthcare & MedTech",
+  "location": "Bengaluru, India",
+  "website": "https://apexhealth.io",
+  "business_age_years": 4,
+  "revenue_range": "25L-50L",
+  "employee_count": 28,
+  "customer_count": 5200,
+  "marketing_spend_monthly": 65000.0
+}
+```
+
+#### Example Business Creation Response:
+`201 Created`
+```json
+{
+  "id": "e4a3c18b-6c48-4cb9-b8fb-8c34dc4391cb",
+  "name": "Apex Health Technologies",
+  "industry": "Healthcare & MedTech",
+  "location": "Bengaluru, India",
+  "website": "https://apexhealth.io",
+  "business_age_years": 4,
+  "revenue_range": "25L-50L",
+  "employee_count": 28,
+  "customer_count": 5200,
+  "marketing_spend_monthly": 65000.0,
+  "created_at": "2026-09-25T12:00:00.000000Z",
+  "updated_at": "2026-09-25T12:00:00.000000Z"
+}
+```
+
+---
+
+## Local Development Setup
 
 ### Prerequisites
-- **Node.js**: v18.0.0 or higher (`node -v`)
-- **npm**: v9.0.0 or higher (`npm -v`)
-- **Python**: v3.10 or higher (`python --version`)
-- **Git**: Installed and configured
+- **Node.js**: v18.0.0 or higher
+- **npm**: v9.0.0 or higher
+- **Python**: v3.10 or higher
+- **PostgreSQL**: Local service or Docker
 
 ---
 
-### 1. Backend Setup (FastAPI)
+### 1. Database Setup (PostgreSQL)
 
-1. Open a terminal and navigate to the backend directory:
-   ```bash
-   cd backend
-   ```
+You can run PostgreSQL either via **Docker Compose** or via a **local PostgreSQL installation**:
 
-2. Create and activate a virtual environment:
-   - **Windows (PowerShell)**:
-     ```powershell
-     python -m venv .venv
-     .\.venv\Scripts\Activate.ps1
-     ```
-   - **macOS / Linux**:
-     ```bash
-     python3 -m venv .venv
-     source .venv/bin/activate
-     ```
+#### Option A: Run via Docker Compose
+```bash
+docker compose up -d postgres
+```
+This spins up PostgreSQL on port `5432` with database `stanleaf`, user `stanleaf`, password `stanleaf`.
 
-3. Install backend dependencies:
-   ```bash
-   pip install --upgrade pip
-   pip install -r requirements.txt
-   ```
-
-4. Configure environment variables:
-   ```bash
-   cp .env.example .env
-   ```
-
-5. Start the FastAPI development server:
-   ```bash
-   uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-   ```
-
-6. Verify the backend:
-   - Open [http://localhost:8000/api/v1/health](http://localhost:8000/api/v1/health)
-   - Interactive Swagger API documentation: [http://localhost:8000/docs](http://localhost:8000/docs)
-   - ReDoc documentation: [http://localhost:8000/redoc](http://localhost:8000/redoc)
+#### Option B: Local PostgreSQL Service
+Create the database and user using `psql`:
+```sql
+CREATE USER stanleaf WITH PASSWORD 'stanleaf';
+CREATE DATABASE stanleaf OWNER stanleaf;
+```
 
 ---
 
-### 2. Frontend Setup (Next.js)
+### 2. Run Database Migrations (Alembic)
 
-1. Open a new terminal and navigate to the frontend directory:
-   ```bash
-   cd frontend
-   ```
+Navigate to the `backend/` directory:
+```bash
+cd backend
+.\.venv\Scripts\Activate.ps1   # On Windows
+# source .venv/bin/activate    # On macOS/Linux
 
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
+alembic upgrade head
+```
 
-3. Configure environment variables:
-   ```bash
-   cp .env.example .env.local
-   ```
-   *(Ensure `NEXT_PUBLIC_API_URL=http://localhost:8000` is present)*
-
-4. Start the Next.js development server:
-   ```bash
-   npm run dev
-   ```
-
-5. Open [http://localhost:3000](http://localhost:3000) in your browser:
-   - The landing page displays:
-     - **Stanleaf**
-     - **Business Intelligence, Simplified.**
-     - Real-time live status indicator polling the FastAPI backend at `http://localhost:8000/api/v1/health`.
+To rollback a migration:
+```bash
+alembic downgrade -1
+```
 
 ---
 
-### 3. Running Automated Tests
+### 3. Start the FastAPI Backend
 
-Run the test suite using pytest from the workspace root or backend directory:
+From `backend/`:
+```bash
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+- API Health Check: [http://localhost:8000/api/v1/health](http://localhost:8000/api/v1/health)
+- Swagger Documentation: [http://localhost:8000/docs](http://localhost:8000/docs)
+- ReDoc Documentation: [http://localhost:8000/redoc](http://localhost:8000/redoc)
+
+---
+
+### 4. Start the Next.js Frontend
+
+Open a new terminal and navigate to `frontend/`:
+```bash
+cd frontend
+npm install
+npm run dev
+```
+- Homepage: [http://localhost:3000](http://localhost:3000)
+- Business Onboarding: [http://localhost:3000/onboarding](http://localhost:3000/onboarding)
+
+---
+
+### 5. Running Automated Tests
+
+Run the complete automated backend test suite using Pytest:
 
 ```powershell
-# From the backend directory with active virtual environment:
-pytest ../tests/backend -v
+cd backend
+.\.venv\Scripts\pytest.exe ..\tests\backend -v
 ```
 
-Expected output:
-```
-tests/backend/test_health.py::test_health_endpoint_v1 PASSED
-tests/backend/test_health.py::test_health_endpoint_convenience PASSED
-tests/backend/test_health.py::test_root_endpoint PASSED
-```
-
----
-
-## CORS Configuration
-
-FastAPI is configured via `app/core/cors.py` to allow cross-origin requests from the Next.js frontend running at `http://localhost:3000` (and `http://127.0.0.1:3000`). Additional allowed origins can be specified in `backend/.env` using the `CORS_ORIGINS` comma-separated list.
-
----
-
-## Architectural Principles & Ground Rules
-
-1. **Explainability Over Black Boxes**: All business health scores must be mathematically explainable with weighted sub-indices. No opaque "AI score" without feature attribution.
-2. **Data Science Decoupling**: Algorithms and feature transformations reside exclusively in `data-engine/` and `ml/`, never in web controllers or UI components.
-3. **Reproducibility**: All exploratory work in `notebooks/` must transition to tested, modular functions in `data-engine/`.
-4. **Data Privacy**: Local LLM workflows via Ollama are designed to prevent sensitive enterprise financials from being transmitted to third-party endpoints.
+The test suite runs against an isolated in-memory test database strategy and verifies:
+1. `test_create_valid_business`: 201 Created with valid UUID and timestamp persistence.
+2. `test_reject_invalid_business_data`: 422 Unprocessable Entity on missing/empty fields, negative numbers, and invalid URLs.
+3. `test_retrieve_business`: 200 OK on retrieving a business by ID.
+4. `test_retrieve_nonexistent_business_404`: 404 Not Found for non-existent UUIDs.
+5. `test_list_businesses`: 200 OK returning all registered business records.
+6. `test_health_endpoint_v1`, `test_health_endpoint_convenience`, `test_root_endpoint`.
