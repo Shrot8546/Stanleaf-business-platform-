@@ -63,6 +63,10 @@ Thumbs.db
 # Notebooks
 .ipynb_checkpoints
 
+# SQLite / Local Databases
+*.db
+*.sqlite3
+
 # ML & AI artifacts
 ml/models/*.pkl
 ml/models/*.joblib

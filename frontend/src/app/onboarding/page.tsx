@@ -11,8 +11,19 @@ import {
   ArrowLeft,
   Loader2,
   Sparkles,
+  ClipboardList,
+  CheckCheck,
+  HelpCircle,
 } from "lucide-react";
-import { createBusiness, Business } from "@/lib/api";
+import {
+  createBusiness,
+  fetchQuestionnaire,
+  submitQuestionnaire,
+  Business,
+  QuestionnaireDefinition,
+  QuestionItem,
+  QuestionnaireSubmissionResult,
+} from "@/lib/api";
 
 const REVENUE_RANGES = [
   "Pre-revenue / Seed",
@@ -26,22 +37,25 @@ const REVENUE_RANGES = [
 ];
 
 const COMMON_INDUSTRIES = [
-  "Software & SaaS",
-  "Artificial Intelligence / ML",
+  "Restaurant",
   "E-Commerce & D2C",
+  "Software & SaaS",
   "FinTech & Financial Services",
   "Healthcare & MedTech",
   "Manufacturing & Industrial",
   "Logistics & Supply Chain",
   "Retail & Consumer Goods",
-  "CleanTech & Energy",
   "Other",
 ];
 
 export default function OnboardingPage() {
-  const [formData, setFormData] = useState({
+  // Step navigation: 1 = Business Info, 2 = Questionnaire, 3 = Complete
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
+
+  // Step 1: Business Profile Form State
+  const [businessForm, setBusinessForm] = useState({
     name: "",
-    industry: "",
+    industry: "Restaurant",
     customIndustry: "",
     location: "",
     website: "",
@@ -52,147 +66,271 @@ export default function OnboardingPage() {
     marketing_spend_monthly: "",
   });
 
-  const [loading, setLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [clientErrors, setClientErrors] = useState<Record<string, string>>({});
+  const [loadingBusiness, setLoadingBusiness] = useState(false);
+  const [businessErrors, setBusinessErrors] = useState<Record<string, string>>({});
+  const [businessErrorBanner, setBusinessErrorBanner] = useState<string | null>(null);
+
+  // Created Business metadata
   const [createdBusiness, setCreatedBusiness] = useState<Business | null>(null);
+
+  // Step 2: Questionnaire State (Fetched dynamically from backend)
+  const [questionnaireDef, setQuestionnaireDef] = useState<QuestionnaireDefinition | null>(null);
+  const [questionnaireAnswers, setQuestionnaireAnswers] = useState<Record<string, any>>({});
+  const [questionnaireErrors, setQuestionnaireErrors] = useState<Record<string, string>>({});
+  const [loadingQuestionnaire, setLoadingQuestionnaire] = useState(false);
+  const [submittingAnswers, setSubmittingAnswers] = useState(false);
+  const [questionnaireErrorBanner, setQuestionnaireErrorBanner] = useState<string | null>(null);
+
+  // Step 3: Final Submission Result
+  const [submissionResult, setSubmissionResult] = useState<QuestionnaireSubmissionResult | null>(null);
   const [copiedId, setCopiedId] = useState(false);
 
-  const validateForm = (): boolean => {
+  // --------------------------------------------------------------------------
+  // STEP 1: Handlers & Validation
+  // --------------------------------------------------------------------------
+  const validateBusinessForm = (): boolean => {
     const errors: Record<string, string> = {};
 
-    if (!formData.name.trim()) {
+    if (!businessForm.name.trim()) {
       errors.name = "Business name is required.";
     }
 
     const effectiveIndustry =
-      formData.industry === "Other"
-        ? formData.customIndustry.trim()
-        : formData.industry.trim();
+      businessForm.industry === "Other"
+        ? businessForm.customIndustry.trim()
+        : businessForm.industry.trim();
     if (!effectiveIndustry) {
       errors.industry = "Industry sector is required.";
     }
 
-    if (!formData.location.trim()) {
+    if (!businessForm.location.trim()) {
       errors.location = "Operating location is required.";
     }
 
-    if (formData.website.trim()) {
+    if (businessForm.website.trim()) {
       const urlPattern =
         /^(https?:\/\/)?([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}(:\d{1,5})?(\/[^\s]*)?$/i;
-      if (!urlPattern.test(formData.website.trim())) {
-        errors.website = "Enter a valid website URL (e.g., https://example.com or example.com).";
+      if (!urlPattern.test(businessForm.website.trim())) {
+        errors.website = "Enter a valid website URL (e.g. https://example.com).";
       }
     }
 
-    if (formData.business_age_years !== "") {
-      const val = Number(formData.business_age_years);
+    if (businessForm.business_age_years !== "") {
+      const val = Number(businessForm.business_age_years);
       if (isNaN(val) || val < 0) {
-        errors.business_age_years = "Business age must be a positive number.";
+        errors.business_age_years = "Business age must be >= 0.";
       }
     }
 
-    if (formData.employee_count !== "") {
-      const val = Number(formData.employee_count);
+    if (businessForm.employee_count !== "") {
+      const val = Number(businessForm.employee_count);
       if (isNaN(val) || val < 0) {
-        errors.employee_count = "Employee count cannot be negative.";
+        errors.employee_count = "Employee count must be >= 0.";
       }
     }
 
-    if (formData.customer_count !== "") {
-      const val = Number(formData.customer_count);
+    if (businessForm.customer_count !== "") {
+      const val = Number(businessForm.customer_count);
       if (isNaN(val) || val < 0) {
-        errors.customer_count = "Customer count cannot be negative.";
+        errors.customer_count = "Customer count must be >= 0.";
       }
     }
 
-    if (formData.marketing_spend_monthly !== "") {
-      const val = Number(formData.marketing_spend_monthly);
+    if (businessForm.marketing_spend_monthly !== "") {
+      const val = Number(businessForm.marketing_spend_monthly);
       if (isNaN(val) || val < 0) {
-        errors.marketing_spend_monthly = "Marketing spend cannot be negative.";
+        errors.marketing_spend_monthly = "Marketing spend must be >= 0.";
       }
     }
 
-    setClientErrors(errors);
+    setBusinessErrors(errors);
     return Object.keys(errors).length === 0;
   };
 
-  const handleChange = (
+  const handleBusinessChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ) => {
     const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
-    if (clientErrors[name]) {
-      setClientErrors((prev) => ({ ...prev, [name]: "" }));
+    setBusinessForm((prev) => ({ ...prev, [name]: value }));
+    if (businessErrors[name]) {
+      setBusinessErrors((prev) => ({ ...prev, [name]: "" }));
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleBusinessSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setErrorMessage(null);
+    setBusinessErrorBanner(null);
 
-    if (!validateForm()) {
-      return;
-    }
+    if (!validateBusinessForm()) return;
 
-    setLoading(true);
+    setLoadingBusiness(true);
 
     try {
       const effectiveIndustry =
-        formData.industry === "Other"
-          ? formData.customIndustry.trim()
-          : formData.industry.trim();
+        businessForm.industry === "Other"
+          ? businessForm.customIndustry.trim()
+          : businessForm.industry.trim();
 
       const payload = {
-        name: formData.name.trim(),
+        name: businessForm.name.trim(),
         industry: effectiveIndustry,
-        location: formData.location.trim(),
-        website: formData.website.trim() || undefined,
+        location: businessForm.location.trim(),
+        website: businessForm.website.trim() || undefined,
         business_age_years:
-          formData.business_age_years !== ""
-            ? parseInt(formData.business_age_years, 10)
+          businessForm.business_age_years !== ""
+            ? parseInt(businessForm.business_age_years, 10)
             : undefined,
-        revenue_range: formData.revenue_range.trim() || undefined,
+        revenue_range: businessForm.revenue_range.trim() || undefined,
         employee_count:
-          formData.employee_count !== ""
-            ? parseInt(formData.employee_count, 10)
+          businessForm.employee_count !== ""
+            ? parseInt(businessForm.employee_count, 10)
             : undefined,
         customer_count:
-          formData.customer_count !== ""
-            ? parseInt(formData.customer_count, 10)
+          businessForm.customer_count !== ""
+            ? parseInt(businessForm.customer_count, 10)
             : undefined,
         marketing_spend_monthly:
-          formData.marketing_spend_monthly !== ""
-            ? parseFloat(formData.marketing_spend_monthly)
+          businessForm.marketing_spend_monthly !== ""
+            ? parseFloat(businessForm.marketing_spend_monthly)
             : undefined,
       };
 
-      const result = await createBusiness(payload);
-      setCreatedBusiness(result);
+      const created = await createBusiness(payload);
+      setCreatedBusiness(created);
+
+      // Now fetch the questionnaire definition for this industry
+      setLoadingQuestionnaire(true);
+      try {
+        const qDef = await fetchQuestionnaire(created.industry);
+        setQuestionnaireDef(qDef);
+
+        // Prepopulate answers map with defaults or empty strings
+        const initialAnswers: Record<string, any> = {};
+        qDef.questions.forEach((q) => {
+          initialAnswers[q.id] = q.data_type === "boolean" ? false : "";
+        });
+        setQuestionnaireAnswers(initialAnswers);
+        setCurrentStep(2);
+      } catch (qErr: unknown) {
+        // If questionnaire is not available for this industry yet, transition to completed profile
+        console.warn("Questionnaire definition not available:", qErr);
+        setQuestionnaireDef(null);
+        setCurrentStep(3);
+      } finally {
+        setLoadingQuestionnaire(false);
+      }
     } catch (err: unknown) {
       const msg =
-        err instanceof Error
-          ? err.message
-          : "An unexpected error occurred while registering the business.";
-      setErrorMessage(msg);
+        err instanceof Error ? err.message : "Failed to register business record.";
+      setBusinessErrorBanner(msg);
     } finally {
-      setLoading(false);
+      setLoadingBusiness(false);
+    }
+  };
+
+  // --------------------------------------------------------------------------
+  // STEP 2: Handlers & Validation
+  // --------------------------------------------------------------------------
+  const handleAnswerChange = (questionId: string, val: any) => {
+    setQuestionnaireAnswers((prev) => ({ ...prev, [questionId]: val }));
+    if (questionnaireErrors[questionId]) {
+      setQuestionnaireErrors((prev) => ({ ...prev, [questionId]: "" }));
+    }
+  };
+
+  const validateQuestionnaire = (): boolean => {
+    if (!questionnaireDef) return true;
+    const errors: Record<string, string> = {};
+
+    for (const q of questionnaireDef.questions) {
+      const val = questionnaireAnswers[q.id];
+
+      // Required check
+      if (q.required) {
+        if (val === undefined || val === null || val === "") {
+          errors[q.id] = "This question is required.";
+          continue;
+        }
+      }
+
+      // If value is filled, validate types and boundaries
+      if (val !== undefined && val !== null && val !== "") {
+        if (["integer", "decimal", "currency", "percentage"].includes(q.data_type)) {
+          const num = Number(val);
+          if (isNaN(num)) {
+            errors[q.id] = "Please enter a valid numerical value.";
+            continue;
+          }
+          if (q.data_type === "integer" && !Number.isInteger(num)) {
+            errors[q.id] = "Value must be an integer.";
+            continue;
+          }
+          if (q.min_value !== null && q.min_value !== undefined && num < q.min_value) {
+            errors[q.id] = `Value cannot be less than ${q.min_value}.`;
+            continue;
+          }
+          if (q.max_value !== null && q.max_value !== undefined && num > q.max_value) {
+            errors[q.id] = `Value cannot exceed ${q.max_value}.`;
+            continue;
+          }
+        }
+      }
+    }
+
+    setQuestionnaireErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleQuestionnaireSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setQuestionnaireErrorBanner(null);
+
+    if (!createdBusiness?.id) {
+      setQuestionnaireErrorBanner("Missing active business ID. Please restart onboarding.");
+      return;
+    }
+
+    if (!validateQuestionnaire()) {
+      setQuestionnaireErrorBanner("Please review the highlighted errors before submitting.");
+      return;
+    }
+
+    setSubmittingAnswers(true);
+
+    try {
+      const formattedResponses = Object.entries(questionnaireAnswers)
+        .filter(([_, value]) => value !== undefined && value !== null && value !== "")
+        .map(([question_id, value]) => ({
+          question_id,
+          value,
+        }));
+
+      const res = await submitQuestionnaire(createdBusiness.id, formattedResponses);
+      setSubmissionResult(res);
+      setCurrentStep(3);
+    } catch (err: unknown) {
+      const msg =
+        err instanceof Error ? err.message : "Failed to submit questionnaire responses.";
+      setQuestionnaireErrorBanner(msg);
+    } finally {
+      setSubmittingAnswers(false);
     }
   };
 
   const handleCopyId = () => {
-    if (createdBusiness?.id) {
-      navigator.clipboard.writeText(createdBusiness.id);
+    const idToCopy = createdBusiness?.id || submissionResult?.business_id;
+    if (idToCopy) {
+      navigator.clipboard.writeText(idToCopy);
       setCopiedId(true);
       setTimeout(() => setCopiedId(false), 2500);
     }
   };
 
   const handleReset = () => {
-    setCreatedBusiness(null);
-    setFormData({
+    setCurrentStep(1);
+    setBusinessForm({
       name: "",
-      industry: "",
+      industry: "Restaurant",
       customIndustry: "",
       location: "",
       website: "",
@@ -202,60 +340,519 @@ export default function OnboardingPage() {
       customer_count: "",
       marketing_spend_monthly: "",
     });
-    setClientErrors({});
-    setErrorMessage(null);
+    setBusinessErrors({});
+    setBusinessErrorBanner(null);
+    setCreatedBusiness(null);
+    setQuestionnaireDef(null);
+    setQuestionnaireAnswers({});
+    setQuestionnaireErrors({});
+    setSubmissionResult(null);
   };
 
+  // Group questions by category for clean visual layout
+  const groupedQuestions = questionnaireDef
+    ? questionnaireDef.questions.reduce((acc, q) => {
+        if (!acc[q.category]) acc[q.category] = [];
+        acc[q.category].push(q);
+        return acc;
+      }, {} as Record<string, QuestionItem[]>)
+    : {};
+
   return (
-    <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
       {/* Back button */}
       <Link
         href="/"
-        className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-900 transition-colors mb-8"
+        className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-900 transition-colors mb-6"
       >
         <ArrowLeft className="w-3.5 h-3.5" />
         <span>Back to Home</span>
       </Link>
 
-      {/* Header */}
-      <div className="mb-10 text-center sm:text-left">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/80 mb-3">
-          <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-          <span>Step 2 — Business Registration & Persistence</span>
+      {/* Progress Steps Header */}
+      <div className="mb-10">
+        <div className="flex items-center justify-between border-b border-slate-200 pb-5">
+          <div>
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/80 mb-2">
+              <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Step 3 — Industry-Specific Questionnaire Engine</span>
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
+              {currentStep === 1 && "Step 1: Business Profile"}
+              {currentStep === 2 && `Step 2: ${questionnaireDef?.title || "Industry Questionnaire"}`}
+              {currentStep === 3 && "Step 3: Verification & Record Created"}
+            </h1>
+          </div>
+
+          {/* Stepper Indicator */}
+          <div className="hidden sm:flex items-center gap-2 text-xs font-medium">
+            <span
+              className={`px-3 py-1 rounded-full flex items-center gap-1.5 ${
+                currentStep === 1
+                  ? "bg-emerald-600 text-white font-bold shadow-sm"
+                  : "bg-emerald-100 text-emerald-800"
+              }`}
+            >
+              <Building2 className="w-3.5 h-3.5" /> Profile
+            </span>
+            <span className="text-slate-300">→</span>
+            <span
+              className={`px-3 py-1 rounded-full flex items-center gap-1.5 ${
+                currentStep === 2
+                  ? "bg-emerald-600 text-white font-bold shadow-sm"
+                  : currentStep > 2
+                  ? "bg-emerald-100 text-emerald-800"
+                  : "bg-slate-100 text-slate-400"
+              }`}
+            >
+              <ClipboardList className="w-3.5 h-3.5" /> Diagnostic
+            </span>
+            <span className="text-slate-300">→</span>
+            <span
+              className={`px-3 py-1 rounded-full flex items-center gap-1.5 ${
+                currentStep === 3
+                  ? "bg-emerald-600 text-white font-bold shadow-sm"
+                  : "bg-slate-100 text-slate-400"
+              }`}
+            >
+              <CheckCheck className="w-3.5 h-3.5" /> Verified
+            </span>
+          </div>
         </div>
-        <h1 className="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight">
-          Business Onboarding
-        </h1>
-        <p className="text-slate-500 text-sm sm:text-base mt-2">
-          Register your business entity into Stanleaf to initialize its relational record in PostgreSQL.
-        </p>
       </div>
 
-      {/* Success State */}
-      {createdBusiness ? (
-        <div className="rounded-2xl border border-emerald-200 bg-white p-6 sm:p-8 shadow-sm">
-          <div className="flex items-center gap-3 text-emerald-600 mb-6">
+      {/* ==================================================================== */}
+      {/* STEP 1: BUSINESS PROFILE FORM                                        */}
+      {/* ==================================================================== */}
+      {currentStep === 1 && (
+        <form
+          onSubmit={handleBusinessSubmit}
+          className="rounded-2xl border border-slate-200 bg-white p-6 sm:p-8 shadow-sm space-y-6"
+        >
+          {businessErrorBanner && (
+            <div className="p-4 rounded-xl bg-rose-50 border border-rose-200/80 flex items-start gap-3 text-rose-800 text-xs">
+              <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold block">Registration Error</span>
+                <span>{businessErrorBanner}</span>
+              </div>
+            </div>
+          )}
+
+          <div>
+            <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2 mb-1">
+              <Building2 className="w-4 h-4 text-emerald-600" />
+              <span>Core Business Profile (Required)</span>
+            </h2>
+            <p className="text-xs text-slate-500">
+              Select your industry to load the appropriate diagnostic questions in Step 2.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Business Name */}
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Business Name <span className="text-rose-500">*</span>
+              </label>
+              <input
+                type="text"
+                name="name"
+                value={businessForm.name}
+                onChange={handleBusinessChange}
+                placeholder="e.g. Bella Cucina Italian Bistro"
+                className={`w-full px-3.5 py-2.5 rounded-xl border text-sm focus:outline-none focus:ring-2 transition-all ${
+                  businessErrors.name
+                    ? "border-rose-300 focus:ring-rose-200 bg-rose-50/20"
+                    : "border-slate-200 focus:ring-emerald-200 focus:border-emerald-500"
+                }`}
+              />
+              {businessErrors.name && (
+                <p className="text-[11px] text-rose-600 mt-1">{businessErrors.name}</p>
+              )}
+            </div>
+
+            {/* Industry Selector */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Industry Sector <span className="text-rose-500">*</span>
+              </label>
+              <select
+                name="industry"
+                value={businessForm.industry}
+                onChange={handleBusinessChange}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200 focus:border-emerald-500 bg-white"
+              >
+                {COMMON_INDUSTRIES.map((ind) => (
+                  <option key={ind} value={ind}>
+                    {ind} {ind === "Restaurant" || ind === "E-Commerce & D2C" ? "(Full Questionnaire Available)" : ""}
+                  </option>
+                ))}
+              </select>
+              {businessForm.industry === "Other" && (
+                <input
+                  type="text"
+                  name="customIndustry"
+                  value={businessForm.customIndustry}
+                  onChange={handleBusinessChange}
+                  placeholder="Specify industry..."
+                  className="w-full mt-2 px-3.5 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200 focus:border-emerald-500"
+                />
+              )}
+              {businessErrors.industry && (
+                <p className="text-[11px] text-rose-600 mt-1">{businessErrors.industry}</p>
+              )}
+            </div>
+
+            {/* Location */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Operating Location <span className="text-rose-500">*</span>
+              </label>
+              <input
+                type="text"
+                name="location"
+                value={businessForm.location}
+                onChange={handleBusinessChange}
+                placeholder="e.g. Chicago, IL or Bengaluru, India"
+                className={`w-full px-3.5 py-2.5 rounded-xl border text-sm focus:outline-none focus:ring-2 transition-all ${
+                  businessErrors.location
+                    ? "border-rose-300 focus:ring-rose-200"
+                    : "border-slate-200 focus:ring-emerald-200 focus:border-emerald-500"
+                }`}
+              />
+              {businessErrors.location && (
+                <p className="text-[11px] text-rose-600 mt-1">{businessErrors.location}</p>
+              )}
+            </div>
+
+            {/* Website */}
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Website URL <span className="text-slate-400 font-normal">(Optional)</span>
+              </label>
+              <input
+                type="text"
+                name="website"
+                value={businessForm.website}
+                onChange={handleBusinessChange}
+                placeholder="https://bistrobella.com"
+                className={`w-full px-3.5 py-2.5 rounded-xl border text-sm focus:outline-none focus:ring-2 transition-all ${
+                  businessErrors.website
+                    ? "border-rose-300 focus:ring-rose-200"
+                    : "border-slate-200 focus:ring-emerald-200 focus:border-emerald-500"
+                }`}
+              />
+              {businessErrors.website && (
+                <p className="text-[11px] text-rose-600 mt-1">{businessErrors.website}</p>
+              )}
+            </div>
+          </div>
+
+          <hr className="border-slate-100" />
+
+          {/* Section 2: Optional Scale Indicators */}
+          <div className="space-y-4">
+            <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider">
+              Operational Scale Indicators (Optional)
+            </h2>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Business Age (Years)
+                </label>
+                <input
+                  type="number"
+                  name="business_age_years"
+                  min="0"
+                  step="1"
+                  value={businessForm.business_age_years}
+                  onChange={handleBusinessChange}
+                  placeholder="e.g. 3"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200 focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Revenue Bracket
+                </label>
+                <select
+                  name="revenue_range"
+                  value={businessForm.revenue_range}
+                  onChange={handleBusinessChange}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200 focus:border-emerald-500 bg-white"
+                >
+                  <option value="">Select Bracket...</option>
+                  {REVENUE_RANGES.map((r) => (
+                    <option key={r} value={r}>
+                      {r}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Employee Count
+                </label>
+                <input
+                  type="number"
+                  name="employee_count"
+                  min="0"
+                  step="1"
+                  value={businessForm.employee_count}
+                  onChange={handleBusinessChange}
+                  placeholder="e.g. 15"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200 focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Monthly Marketing Spend
+                </label>
+                <input
+                  type="number"
+                  name="marketing_spend_monthly"
+                  min="0"
+                  step="0.01"
+                  value={businessForm.marketing_spend_monthly}
+                  onChange={handleBusinessChange}
+                  placeholder="e.g. 25000"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200 focus:border-emerald-500"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="pt-2">
+            <button
+              type="submit"
+              disabled={loadingBusiness || loadingQuestionnaire}
+              className="w-full py-3 px-5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm transition-colors shadow-sm disabled:opacity-60 flex items-center justify-center gap-2"
+            >
+              {loadingBusiness || loadingQuestionnaire ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Registering & Loading Questionnaire...</span>
+                </>
+              ) : (
+                <span>Continue to Step 2: Industry Questionnaire →</span>
+              )}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {/* ==================================================================== */}
+      {/* STEP 2: DYNAMIC INDUSTRY QUESTIONNAIRE FORM                          */}
+      {/* ==================================================================== */}
+      {currentStep === 2 && questionnaireDef && (
+        <form
+          onSubmit={handleQuestionnaireSubmit}
+          className="rounded-2xl border border-slate-200 bg-white p-6 sm:p-8 shadow-sm space-y-8"
+        >
+          {/* Business summary header banner */}
+          <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+            <div>
+              <span className="font-semibold text-slate-900 block text-sm">
+                {createdBusiness?.name}
+              </span>
+              <span className="text-slate-500">
+                Industry: <strong className="text-emerald-700">{createdBusiness?.industry}</strong> • Location: {createdBusiness?.location}
+              </span>
+            </div>
+            <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 font-mono text-[11px] font-semibold">
+              ID: {createdBusiness?.id.slice(0, 8)}...
+            </span>
+          </div>
+
+          {questionnaireErrorBanner && (
+            <div className="p-4 rounded-xl bg-rose-50 border border-rose-200/80 flex items-start gap-3 text-rose-800 text-xs">
+              <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold block">Validation Error</span>
+                <span>{questionnaireErrorBanner}</span>
+              </div>
+            </div>
+          )}
+
+          <div>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              {questionnaireDef.description}
+            </p>
+          </div>
+
+          {/* Grouped Questions by Category */}
+          {Object.entries(groupedQuestions).map(([category, questions]) => (
+            <div key={category} className="space-y-4 pt-2">
+              <div className="border-b border-slate-200 pb-2">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                  {category} Metrics
+                </h3>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                {questions.map((q) => (
+                  <div key={q.id} className="space-y-1.5">
+                    <label className="block text-xs font-semibold text-slate-800">
+                      {q.question_text}{" "}
+                      {q.required ? (
+                        <span className="text-rose-500">*</span>
+                      ) : (
+                        <span className="text-slate-400 font-normal">(Optional)</span>
+                      )}
+                    </label>
+
+                    {q.description && (
+                      <p className="text-[11px] text-slate-400 leading-snug flex items-center gap-1">
+                        <HelpCircle className="w-3 h-3 flex-shrink-0 text-slate-300" />
+                        <span>{q.description}</span>
+                      </p>
+                    )}
+
+                    {/* Input Element according to data_type */}
+                    <div className="relative mt-1">
+                      {q.data_type === "select" ? (
+                        <select
+                          value={questionnaireAnswers[q.id] || ""}
+                          onChange={(e) => handleAnswerChange(q.id, e.target.value)}
+                          className={`w-full px-3.5 py-2.5 rounded-xl border text-sm bg-white focus:outline-none focus:ring-2 transition-all ${
+                            questionnaireErrors[q.id]
+                              ? "border-rose-300 focus:ring-rose-200"
+                              : "border-slate-200 focus:ring-emerald-200 focus:border-emerald-500"
+                          }`}
+                        >
+                          <option value="">Select option...</option>
+                          {q.options?.map((opt) => (
+                            <option key={opt} value={opt}>
+                              {opt}
+                            </option>
+                          ))}
+                        </select>
+                      ) : q.data_type === "boolean" ? (
+                        <div className="flex items-center gap-4 py-2">
+                          <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                            <input
+                              type="radio"
+                              name={q.id}
+                              checked={questionnaireAnswers[q.id] === true}
+                              onChange={() => handleAnswerChange(q.id, true)}
+                              className="text-emerald-600 focus:ring-emerald-500"
+                            />
+                            <span>Yes</span>
+                          </label>
+                          <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                            <input
+                              type="radio"
+                              name={q.id}
+                              checked={questionnaireAnswers[q.id] === false}
+                              onChange={() => handleAnswerChange(q.id, false)}
+                              className="text-emerald-600 focus:ring-emerald-500"
+                            />
+                            <span>No</span>
+                          </label>
+                        </div>
+                      ) : (
+                        <div className="relative flex items-center">
+                          <input
+                            type={["integer", "decimal", "currency", "percentage"].includes(q.data_type) ? "number" : "text"}
+                            step={q.data_type === "integer" ? "1" : "any"}
+                            min={q.min_value !== null ? q.min_value : undefined}
+                            max={q.max_value !== null ? q.max_value : undefined}
+                            value={questionnaireAnswers[q.id] ?? ""}
+                            onChange={(e) => handleAnswerChange(q.id, e.target.value)}
+                            placeholder={
+                              q.data_type === "percentage"
+                                ? "e.g. 45"
+                                : q.data_type === "decimal"
+                                ? "e.g. 4.5"
+                                : "Enter value..."
+                            }
+                            className={`w-full px-3.5 py-2.5 rounded-xl border text-sm focus:outline-none focus:ring-2 transition-all ${
+                              q.unit ? "pr-14" : ""
+                            } ${
+                              questionnaireErrors[q.id]
+                                ? "border-rose-300 focus:ring-rose-200 bg-rose-50/20"
+                                : "border-slate-200 focus:ring-emerald-200 focus:border-emerald-500"
+                            }`}
+                          />
+                          {q.unit && (
+                            <span className="absolute right-3 text-xs font-semibold text-slate-400 select-none">
+                              {q.unit}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {questionnaireErrors[q.id] && (
+                      <p className="text-[11px] text-rose-600 mt-0.5">
+                        {questionnaireErrors[q.id]}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+
+          <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={() => setCurrentStep(1)}
+              className="text-xs font-semibold text-slate-500 hover:text-slate-900 transition-colors"
+            >
+              ← Edit Business Information
+            </button>
+
+            <button
+              type="submit"
+              disabled={submittingAnswers}
+              className="w-full sm:w-auto py-3 px-6 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm transition-colors shadow-sm disabled:opacity-60 flex items-center justify-center gap-2"
+            >
+              {submittingAnswers ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Validating & Storing in PostgreSQL...</span>
+                </>
+              ) : (
+                <span>Complete Questionnaire & Save Record →</span>
+              )}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {/* ==================================================================== */}
+      {/* STEP 3: SUCCESS & CONFIRMATION STATE                                 */}
+      {/* ==================================================================== */}
+      {currentStep === 3 && (
+        <div className="rounded-2xl border border-emerald-200 bg-white p-6 sm:p-8 shadow-sm space-y-6">
+          <div className="flex items-center gap-3 text-emerald-600">
             <div className="w-12 h-12 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center">
               <CheckCircle2 className="w-6 h-6 text-emerald-600" />
             </div>
             <div>
               <h2 className="text-xl font-bold text-slate-900">
-                Business Successfully Registered!
+                Business Onboarding & Diagnostic Complete!
               </h2>
               <p className="text-xs text-slate-500">
-                The business record is now committed to the PostgreSQL database.
+                Data records committed and verified in PostgreSQL for downstream Data Science processing.
               </p>
             </div>
           </div>
 
           {/* Business ID Box */}
-          <div className="bg-slate-50 rounded-xl p-4 border border-slate-200/80 mb-6">
+          <div className="bg-slate-50 rounded-xl p-4 border border-slate-200/80">
             <span className="text-[11px] uppercase font-bold text-slate-400 tracking-wider block mb-1">
-              Generated Business UUID
+              Registered Business UUID
             </span>
             <div className="flex items-center justify-between gap-3">
               <code className="text-xs sm:text-sm font-mono font-semibold text-emerald-700 break-all select-all">
-                {createdBusiness.id}
+                {createdBusiness?.id}
               </code>
               <button
                 onClick={handleCopyId}
@@ -276,48 +873,30 @@ export default function OnboardingPage() {
             </div>
           </div>
 
-          {/* Submitted Details Summary */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-8 text-xs">
+          {/* Metrics summary */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
             <div className="p-3 bg-slate-50/60 rounded-lg border border-slate-100">
-              <span className="text-slate-400 block mb-0.5">Name</span>
-              <span className="font-semibold text-slate-800">{createdBusiness.name}</span>
+              <span className="text-slate-400 block mb-0.5">Business Name</span>
+              <span className="font-semibold text-slate-800">{createdBusiness?.name}</span>
             </div>
             <div className="p-3 bg-slate-50/60 rounded-lg border border-slate-100">
-              <span className="text-slate-400 block mb-0.5">Industry</span>
-              <span className="font-semibold text-slate-800">{createdBusiness.industry}</span>
+              <span className="text-slate-400 block mb-0.5">Industry Sector</span>
+              <span className="font-semibold text-slate-800">{createdBusiness?.industry}</span>
             </div>
             <div className="p-3 bg-slate-50/60 rounded-lg border border-slate-100">
-              <span className="text-slate-400 block mb-0.5">Location</span>
-              <span className="font-semibold text-slate-800">{createdBusiness.location}</span>
+              <span className="text-slate-400 block mb-0.5">Responses Recorded</span>
+              <span className="font-semibold text-emerald-700">
+                {submissionResult ? `${submissionResult.responses_count} Verified Metrics` : "Profile Saved"}
+              </span>
             </div>
-            {createdBusiness.website && (
-              <div className="p-3 bg-slate-50/60 rounded-lg border border-slate-100">
-                <span className="text-slate-400 block mb-0.5">Website</span>
-                <span className="font-semibold text-slate-800 truncate block">
-                  {createdBusiness.website}
-                </span>
-              </div>
-            )}
-            {createdBusiness.business_age_years !== null && (
-              <div className="p-3 bg-slate-50/60 rounded-lg border border-slate-100">
-                <span className="text-slate-400 block mb-0.5">Age</span>
-                <span className="font-semibold text-slate-800">
-                  {createdBusiness.business_age_years} years
-                </span>
-              </div>
-            )}
-            {createdBusiness.revenue_range && (
-              <div className="p-3 bg-slate-50/60 rounded-lg border border-slate-100">
-                <span className="text-slate-400 block mb-0.5">Revenue</span>
-                <span className="font-semibold text-slate-800">
-                  {createdBusiness.revenue_range}
-                </span>
-              </div>
-            )}
+            <div className="p-3 bg-slate-50/60 rounded-lg border border-slate-100">
+              <span className="text-slate-400 block mb-0.5">Data Science Layer</span>
+              <span className="font-semibold text-slate-700">Ready for Ingestion</span>
+            </div>
           </div>
 
           {/* Action buttons */}
-          <div className="flex flex-col sm:flex-row items-center gap-3">
+          <div className="flex flex-col sm:flex-row items-center gap-3 pt-2">
             <button
               onClick={handleReset}
               className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-emerald-600 text-white font-semibold text-xs hover:bg-emerald-700 transition-colors shadow-sm"
@@ -332,301 +911,6 @@ export default function OnboardingPage() {
             </Link>
           </div>
         </div>
-      ) : (
-        /* Onboarding Form */
-        <form
-          onSubmit={handleSubmit}
-          className="rounded-2xl border border-slate-200 bg-white p-6 sm:p-8 shadow-sm space-y-6"
-        >
-          {/* Error Banner */}
-          {errorMessage && (
-            <div className="p-4 rounded-xl bg-rose-50 border border-rose-200/80 flex items-start gap-3 text-rose-800 text-xs">
-              <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
-              <div>
-                <span className="font-bold block">Registration Error</span>
-                <span>{errorMessage}</span>
-              </div>
-            </div>
-          )}
-
-          {/* Section 1: Core Required Identifiers */}
-          <div className="space-y-4">
-            <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
-              <Building2 className="w-4 h-4 text-emerald-600" />
-              <span>Core Business Profile (Required)</span>
-            </h2>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Business Name */}
-              <div className="sm:col-span-2">
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                  Business Name <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  name="name"
-                  value={formData.name}
-                  onChange={handleChange}
-                  placeholder="e.g., Apex Health Technologies Inc."
-                  className={`w-full px-3.5 py-2.5 rounded-xl border text-sm focus:outline-none focus:ring-2 transition-all ${
-                    clientErrors.name
-                      ? "border-rose-300 focus:ring-rose-200 bg-rose-50/20"
-                      : "border-slate-200 focus:ring-emerald-200 focus:border-emerald-500"
-                  }`}
-                />
-                {clientErrors.name && (
-                  <p className="text-[11px] text-rose-600 mt-1">{clientErrors.name}</p>
-                )}
-              </div>
-
-              {/* Industry */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                  Industry / Sector <span className="text-rose-500">*</span>
-                </label>
-                <select
-                  name="industry"
-                  value={formData.industry}
-                  onChange={handleChange}
-                  className={`w-full px-3.5 py-2.5 rounded-xl border text-sm focus:outline-none focus:ring-2 transition-all bg-white ${
-                    clientErrors.industry
-                      ? "border-rose-300 focus:ring-rose-200"
-                      : "border-slate-200 focus:ring-emerald-200 focus:border-emerald-500"
-                  }`}
-                >
-                  <option value="">Select Industry...</option>
-                  {COMMON_INDUSTRIES.map((ind) => (
-                    <option key={ind} value={ind}>
-                      {ind}
-                    </option>
-                  ))}
-                </select>
-                {formData.industry === "Other" && (
-                  <input
-                    type="text"
-                    name="customIndustry"
-                    value={formData.customIndustry}
-                    onChange={handleChange}
-                    placeholder="Specify your industry..."
-                    className="w-full mt-2 px-3.5 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200 focus:border-emerald-500"
-                  />
-                )}
-                {clientErrors.industry && (
-                  <p className="text-[11px] text-rose-600 mt-1">
-                    {clientErrors.industry}
-                  </p>
-                )}
-              </div>
-
-              {/* Location */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                  Location (City, Country) <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  name="location"
-                  value={formData.location}
-                  onChange={handleChange}
-                  placeholder="e.g., Bengaluru, India or Austin, TX"
-                  className={`w-full px-3.5 py-2.5 rounded-xl border text-sm focus:outline-none focus:ring-2 transition-all ${
-                    clientErrors.location
-                      ? "border-rose-300 focus:ring-rose-200"
-                      : "border-slate-200 focus:ring-emerald-200 focus:border-emerald-500"
-                  }`}
-                />
-                {clientErrors.location && (
-                  <p className="text-[11px] text-rose-600 mt-1">
-                    {clientErrors.location}
-                  </p>
-                )}
-              </div>
-
-              {/* Website */}
-              <div className="sm:col-span-2">
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                  Official Website <span className="text-slate-400 font-normal">(Optional)</span>
-                </label>
-                <input
-                  type="text"
-                  name="website"
-                  value={formData.website}
-                  onChange={handleChange}
-                  placeholder="https://example.com"
-                  className={`w-full px-3.5 py-2.5 rounded-xl border text-sm focus:outline-none focus:ring-2 transition-all ${
-                    clientErrors.website
-                      ? "border-rose-300 focus:ring-rose-200"
-                      : "border-slate-200 focus:ring-emerald-200 focus:border-emerald-500"
-                  }`}
-                />
-                {clientErrors.website && (
-                  <p className="text-[11px] text-rose-600 mt-1">{clientErrors.website}</p>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <hr className="border-slate-100" />
-
-          {/* Section 2: Operational & Scale Metrics */}
-          <div className="space-y-4">
-            <div>
-              <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider">
-                Operational & Financial Scale (Optional)
-              </h2>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Helps establish accurate benchmarking cohorts against comparable businesses.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Business Age */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                  Business Age (Years)
-                </label>
-                <input
-                  type="number"
-                  name="business_age_years"
-                  min="0"
-                  step="1"
-                  value={formData.business_age_years}
-                  onChange={handleChange}
-                  placeholder="e.g., 5"
-                  className={`w-full px-3.5 py-2.5 rounded-xl border text-sm focus:outline-none focus:ring-2 transition-all ${
-                    clientErrors.business_age_years
-                      ? "border-rose-300 focus:ring-rose-200"
-                      : "border-slate-200 focus:ring-emerald-200 focus:border-emerald-500"
-                  }`}
-                />
-                {clientErrors.business_age_years && (
-                  <p className="text-[11px] text-rose-600 mt-1">
-                    {clientErrors.business_age_years}
-                  </p>
-                )}
-              </div>
-
-              {/* Revenue Range */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                  Annual Revenue Range
-                </label>
-                <select
-                  name="revenue_range"
-                  value={formData.revenue_range}
-                  onChange={handleChange}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200 focus:border-emerald-500 bg-white"
-                >
-                  <option value="">Select Revenue Bracket...</option>
-                  {REVENUE_RANGES.map((r) => (
-                    <option key={r} value={r}>
-                      {r}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Employee Count */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                  Employee Count (Headcount)
-                </label>
-                <input
-                  type="number"
-                  name="employee_count"
-                  min="0"
-                  step="1"
-                  value={formData.employee_count}
-                  onChange={handleChange}
-                  placeholder="e.g., 25"
-                  className={`w-full px-3.5 py-2.5 rounded-xl border text-sm focus:outline-none focus:ring-2 transition-all ${
-                    clientErrors.employee_count
-                      ? "border-rose-300 focus:ring-rose-200"
-                      : "border-slate-200 focus:ring-emerald-200 focus:border-emerald-500"
-                  }`}
-                />
-                {clientErrors.employee_count && (
-                  <p className="text-[11px] text-rose-600 mt-1">
-                    {clientErrors.employee_count}
-                  </p>
-                )}
-              </div>
-
-              {/* Customer Count */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                  Active Customer Count
-                </label>
-                <input
-                  type="number"
-                  name="customer_count"
-                  min="0"
-                  step="1"
-                  value={formData.customer_count}
-                  onChange={handleChange}
-                  placeholder="e.g., 1200"
-                  className={`w-full px-3.5 py-2.5 rounded-xl border text-sm focus:outline-none focus:ring-2 transition-all ${
-                    clientErrors.customer_count
-                      ? "border-rose-300 focus:ring-rose-200"
-                      : "border-slate-200 focus:ring-emerald-200 focus:border-emerald-500"
-                  }`}
-                />
-                {clientErrors.customer_count && (
-                  <p className="text-[11px] text-rose-600 mt-1">
-                    {clientErrors.customer_count}
-                  </p>
-                )}
-              </div>
-
-              {/* Monthly Marketing Spend */}
-              <div className="sm:col-span-2">
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                  Monthly Marketing Spend (₹ / $)
-                </label>
-                <input
-                  type="number"
-                  name="marketing_spend_monthly"
-                  min="0"
-                  step="0.01"
-                  value={formData.marketing_spend_monthly}
-                  onChange={handleChange}
-                  placeholder="e.g., 50000"
-                  className={`w-full px-3.5 py-2.5 rounded-xl border text-sm focus:outline-none focus:ring-2 transition-all ${
-                    clientErrors.marketing_spend_monthly
-                      ? "border-rose-300 focus:ring-rose-200"
-                      : "border-slate-200 focus:ring-emerald-200 focus:border-emerald-500"
-                  }`}
-                />
-                {clientErrors.marketing_spend_monthly && (
-                  <p className="text-[11px] text-rose-600 mt-1">
-                    {clientErrors.marketing_spend_monthly}
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Submit Button */}
-          <div className="pt-2">
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-3 px-5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm transition-colors shadow-sm disabled:opacity-60 flex items-center justify-center gap-2"
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Submitting to Database...</span>
-                </>
-              ) : (
-                <span>Register Business Record</span>
-              )}
-            </button>
-            <p className="text-[11px] text-slate-400 text-center mt-2.5">
-              Securely stored in PostgreSQL. Verified via FastAPI REST layer.
-            </p>
-          </div>
-        </form>
       )}
     </div>
   );
