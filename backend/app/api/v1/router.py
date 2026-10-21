@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api.v1.endpoints import health, businesses, questionnaires
+from app.api.v1.endpoints import health, businesses, questionnaires, data_processing
 
 api_router = APIRouter()
 
@@ -7,3 +7,4 @@ api_router = APIRouter()
 api_router.include_router(health.router, tags=["Health"])
 api_router.include_router(businesses.router, prefix="/businesses", tags=["Businesses"])
 api_router.include_router(questionnaires.router, tags=["Questionnaires"])
+api_router.include_router(data_processing.router, tags=["Data Processing"])

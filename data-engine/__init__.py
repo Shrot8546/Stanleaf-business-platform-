@@ -3,12 +3,34 @@ Stanleaf Data Engine
 ====================
 Core Data Science & Big Data Analytics engine for Stanleaf.
 
-Pipeline Architecture:
+Pipeline Stages:
 1. Ingestion: Ingests raw public business data and owner-uploaded records.
-2. Cleaning: Cleans, deduplicates, and sanitizes input data.
-3. Features: Computes financial, operational, and benchmark feature representations.
-4. Analytics: Aggregates industry cohorts, calculates percentiles, and generates benchmark distributions.
-5. Scoring: Evaluates health score metrics across financial, operational, and market risk dimensions.
+2. Cleaning: Cleans, validates, sanitizes, and normalizes input data.
+3. Features: Computes domain-specific financial and operational features.
+4. Analytics: Reusable descriptive calculations and aggregation helpers.
+5. Scoring: Interface reserved for Step 5 (Business Health Score Formula).
 """
 
-__version__ = "0.1.0"
+from .pipeline import DataEngineeringPipeline, PipelineOutput, PIPELINE_VERSION
+from .ingestion import DataExtractor, ExtractedBusinessData, BusinessNotFoundError
+from .cleaning import DataCleaner, CleanedMetric, ValidationResult, MetricStatus
+from .features import FeatureEngineer, DerivedFeature
+from .scoring import BaseScoringEngine
+
+__version__ = PIPELINE_VERSION
+
+__all__ = [
+    "DataEngineeringPipeline",
+    "PipelineOutput",
+    "PIPELINE_VERSION",
+    "DataExtractor",
+    "ExtractedBusinessData",
+    "BusinessNotFoundError",
+    "DataCleaner",
+    "CleanedMetric",
+    "ValidationResult",
+    "MetricStatus",
+    "FeatureEngineer",
+    "DerivedFeature",
+    "BaseScoringEngine",
+]

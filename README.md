@@ -41,23 +41,107 @@ The architecture strictly separates concerns:
 
 - **Step 1 — Foundation**: Completed (Next.js, FastAPI, CORS, Health Check, Docker configuration).
 - **Step 2 — Business Onboarding + Database**: Completed (PostgreSQL, SQLAlchemy, Alembic, Repository Pattern, Business Model).
-- **Step 3 — Industry-Specific Questionnaire Engine**: **Completed & Verified** (Dynamic Questionnaire Registry for Restaurant and E-commerce, `questionnaire_responses` table, multi-step onboarding wizard).
-- **Step 4 — Data Engine Foundation (Upcoming)**: Ingestion $\rightarrow$ Cleaning $\rightarrow$ Normalization $\rightarrow$ Feature Engineering $\rightarrow$ Data Quality.
+- **Step 3 — Industry-Specific Questionnaire Engine**: Completed (Dynamic Questionnaire Registry for Restaurant and E-commerce, `questionnaire_responses` table, multi-step onboarding wizard).
+- **Step 4 — Data Engineering Foundation**: **Completed & Verified** (Ingestion $\rightarrow$ Cleaning $\rightarrow$ Normalization $\rightarrow$ Feature Engineering $\rightarrow$ Data Quality Pipeline).
+- **Step 5 — Deterministic Business Health Score Formula**: Upcoming.
 
 ---
 
-## Questionnaire Engine Architecture
+## Data Engineering Architecture (`data-engine/`)
 
-The Questionnaire Engine serves as the structured data-collection gateway feeding the future Data Science and Analytics layer:
+The **Data Engine** processes raw persisted business profiles and questionnaire metrics into validated, normalized analytical features ready for deterministic scoring:
 
-$$\text{Business Profile} \longrightarrow \text{Industry} \longrightarrow \text{Industry Questionnaire} \longrightarrow \text{Validated Responses} \longrightarrow \text{Structured Business Data} \longrightarrow \text{Data Science / ML}$$
+$$\text{Persisted Data} \longrightarrow \text{Ingestion} \longrightarrow \text{Cleaning \& Validation} \longrightarrow \text{Normalization} \longrightarrow \text{Feature Engineering} \longrightarrow \text{Structured Pipeline Output}$$
 
-### Supported Industries Initially
-1. **Restaurant (`restaurant`)**: 12 diagnostic questions across Financial, Customer, Operations, Marketing, and Reputation.
-2. **E-commerce (`ecommerce`)**: 11 diagnostic questions across Financial, Customer, Operations, Marketing, and Growth.
+```
+data-engine/
+├── ingestion/    # Stage 1: Data extraction from DB repositories or in-memory records
+├── cleaning/     # Stage 2: Type validation, range checks, percentage bounds, outlier flags
+├── features/     # Stage 3: Domain-specific financial and operational feature derivation
+├── analytics/    # Stage 4: Reusable mathematical calculations and safe division helpers
+├── scoring/      # Stage 5: Base scoring interface (reserved strictly for Step 5)
+└── pipeline.py   # Deterministic pipeline orchestrator & structured output schema
+```
 
-### Extensible Registry
-Questionnaire definitions reside as Python configuration schemas in `backend/app/services/questionnaire_definitions/`. Adding new industries (e.g. Healthcare, Retail, Logistics) requires only adding a new definition module without altering the database schema.
+### Pipeline Stages
+
+1. **Ingestion (`ingestion/`)**:
+   - `DataExtractor.extract_from_db(db, business_id)`: Reuses `BusinessRepository` and `QuestionnaireRepository` without duplicating SQL queries.
+   - `DataExtractor.from_records(...)`: Enables offline batch pipelines and isolated testing.
+2. **Cleaning & Validation (`cleaning/`)**:
+   - Validates data types, non-negative ranges, percentage bounds ($0 \le p \le 100$), and metric units.
+   - Enforces reporting period compatibility (ensures monthly flows are not combined with incompatible periods).
+   - Detects duplicate question IDs or incompatible industry questions.
+   - **Quality Guard**: Does **not** silently replace missing values with zero. Does **not** delete valid outliers automatically.
+   - Status classifications: `valid`, `missing`, `invalid`, `derived`.
+3. **Normalization**:
+   - Standardizes metric keys to canonical identifiers (`monthly_revenue`, `monthly_expenses`, `employee_count`).
+   - Normalizes percentage scales and formats without losing numeric precision.
+   - Preserves source provenance (`source_input`) for full analytical lineage.
+4. **Feature Engineering (`features/`)**:
+   - **Universal Features**:
+     - $\text{Operating Profit} = \text{monthly\_revenue} - \text{monthly\_expenses}$
+     - $\text{Operating Margin} = (\text{operating\_profit} / \text{monthly\_revenue}) \times 100$
+     - $\text{Marketing Spend Ratio} = (\text{monthly\_marketing\_spend} / \text{monthly\_revenue}) \times 100$
+     - $\text{Calculated AOV} = \text{monthly\_revenue} / \text{monthly\_orders}$
+   - **Restaurant Features**:
+     - $\text{Revenue Per Employee} = \text{monthly\_revenue} / \text{employee\_count}$
+     - $\text{Revenue Per Customer} = \text{monthly\_revenue} / \text{monthly\_customers}$
+     - $\text{Orders Per Customer} = \text{monthly\_orders} / \text{monthly\_customers}$
+     - $\text{Revenue Per Table} = \text{monthly\_revenue} / \text{table\_count}$ (optional)
+     - $\text{Labor Intensity} = \text{monthly\_customers} / \text{employee\_count}$
+   - **E-commerce Features**:
+     - $\text{Revenue Per Visitor} = \text{monthly\_revenue} / \text{monthly\_website\_traffic}$
+     - $\text{Orders Per Visitor} = \text{monthly\_orders} / \text{monthly\_website\_traffic}$
+     - $\text{CAC to AOV Ratio} = \text{customer\_acquisition\_cost} / \text{reported\_average\_order\_value}$ (optional)
+     - $\text{Effective Return Impact} = \text{monthly\_revenue} \times (\text{return\_rate\_percentage} / 100)$
+   - **Zero Division & Missing Inputs**: Handled safely via `safe_divide`. Status is marked as `skipped_zero_division` or `skipped_missing_input` without raising exceptions or fabricating synthetic values.
+5. **Scoring Interface (`scoring/`)**:
+   - Contains `BaseScoringEngine` abstract base class.
+   - **Strictly reserved for Step 5**. No scoring formulas or fabricated scores are executed.
+
+---
+
+## Structured Pipeline Output Schema
+
+The pipeline returns a standardized JSON-serializable output schema:
+
+```json
+{
+  "business_id": "86ddd96c-4acc-41e5-bb23-ee5993a99bd0",
+  "industry": "Restaurant",
+  "source_metrics": { ... },
+  "cleaned_metrics": {
+    "monthly_revenue": {
+      "metric_id": "monthly_revenue",
+      "raw_value": "450000",
+      "value": 450000.0,
+      "data_type": "currency",
+      "unit": "₹ / $",
+      "period": "monthly",
+      "status": "valid",
+      "source_input": "questionnaire:restaurant.monthly_revenue",
+      "validation_notes": []
+    }
+  },
+  "derived_features": {
+    "operating_profit": {
+      "name": "operating_profit",
+      "value": 135000.0,
+      "unit": "₹ / $",
+      "source_inputs": ["monthly_revenue", "monthly_expenses"],
+      "derivation_rule": "monthly_revenue - monthly_expenses",
+      "status": "computed",
+      "notes": "Net monthly operating cash generated before taxes."
+    }
+  },
+  "missing_fields": [],
+  "validation_errors": [],
+  "data_quality_warnings": [],
+  "processing_timestamp": "2026-10-21T14:38:00.000Z",
+  "pipeline_version": "0.1.0"
+}
+```
 
 ---
 
@@ -86,7 +170,7 @@ Questionnaire definitions reside as Python configuration schemas in `backend/app
 | `business_id` | `UUID` | Foreign Key (`businesses.id`), Indexed | Linked business entity |
 | `question_id` | `VARCHAR(100)` | NOT NULL, Indexed | Stable question identifier |
 | `industry` | `VARCHAR(100)` | NOT NULL, Indexed | Industry key (e.g. `restaurant`) |
-| `category` | `VARCHAR(100)` | NOT NULL | Functional category (Financial, Operations, etc.) |
+| `category` | `VARCHAR(100)` | NOT NULL | Functional category |
 | `value` | `TEXT` | NOT NULL | Raw string representation |
 | `numeric_value` | `FLOAT` | Nullable | Parsed numerical value for analytical modeling |
 | `data_type` | `VARCHAR(50)` | NOT NULL | Data type (`currency`, `percentage`, etc.) |
@@ -119,6 +203,12 @@ Questionnaire definitions reside as Python configuration schemas in `backend/app
 | `POST` | `/api/v1/businesses/{id}/questionnaire` | Submit and validate questionnaire answers | `201 Created` / `422 Unprocessable Content` |
 | `GET` | `/api/v1/businesses/{id}/questionnaire` | Retrieve stored questionnaire responses | `200 OK` / `404 Not Found` |
 
+### Data Engineering & Analytics Endpoints
+| Method | Endpoint | Description | Status Code |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/api/v1/businesses/{id}/data-processing` | Execute data engineering pipeline and return structured features | `200 OK` / `404 Not Found` |
+| `GET` | `/api/v1/businesses/{id}/data-processing` | Query data engineering output (read-only) | `200 OK` / `404 Not Found` |
+
 ---
 
 ## Local Development & Testing
@@ -130,14 +220,21 @@ cd backend
 alembic upgrade head
 ```
 
-### 2. Run Automated Pytest Suite
+### 2. Run Complete Automated Test Suite (35 Tests)
 ```powershell
-pytest ..\tests\backend -v
+cd backend
+.\.venv\Scripts\pytest.exe ..\tests -v
 ```
-Runs 18 unit and integration tests across health endpoints, business models, and questionnaire validations in < 1 second.
+Executes all 35 unit and integration tests across:
+- `tests/backend/test_health.py`: System health routes
+- `tests/backend/test_businesses.py`: Business registration, validation, and listing
+- `tests/backend/test_questionnaires.py`: Industry definitions, range validations, and submissions
+- `tests/backend/test_data_processing_api.py`: Data processing API lifecycle, read-only GET, 404 handling
+- `tests/data_engine/test_pipeline.py`: Ingestion, bounds, zero division, derived formulas, and deterministic execution
 
 ### 3. Start Backend
 ```powershell
+cd backend
 uvicorn app.main:app --reload --port 8000
 ```
 - Swagger API Docs: [http://localhost:8000/docs](http://localhost:8000/docs)
@@ -148,3 +245,11 @@ cd frontend
 npm run dev
 ```
 - Business Onboarding & Diagnostic Wizard: [http://localhost:3000/onboarding](http://localhost:3000/onboarding)
+
+---
+
+## Limitations & Assumptions
+
+1. **Deterministic Processing Only**: Step 4 strictly enforces data validation, cleaning, and domain feature engineering. No machine learning, NLP, Ollama, or synthetic scoring models are utilized.
+2. **Scoring Formula Reservation**: The Business Health Score evaluation formula is strictly reserved for Step 5.
+3. **Flow Periodicity**: Financial and operational flow metrics (revenue, expenses, orders, customer visits) assume a standard monthly cadence.

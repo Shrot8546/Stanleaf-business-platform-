@@ -1,5 +1,8 @@
 """
-Explainable Business Health Scoring Pipeline
-===========================================
-Calculates explainable health scores with sub-indices and component attribution.
+Stanleaf Data Engine — Scoring Subpackage (Reserved for Step 5)
+==============================================================
 """
+
+from .interface import BaseScoringEngine
+
+__all__ = ["BaseScoringEngine"]

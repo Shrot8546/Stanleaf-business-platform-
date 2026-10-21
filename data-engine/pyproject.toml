@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stanleaf-data-engine"
+version = "0.1.0"
+description = "Stanleaf Data Science and Big Data Analytics Engine"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[tool.setuptools.package-dir]
+data_engine = "."
+
+[tool.setuptools]
+packages = ["data_engine", "ingestion", "cleaning", "features", "analytics", "scoring"]

@@ -7,6 +7,7 @@ from app.schemas.questionnaire import (
     QuestionnaireResponseOut,
     QuestionnaireSubmissionResult,
 )
+from app.schemas.data_processing import DataProcessingResponse
 
 __all__ = [
     "BusinessBase",
@@ -18,4 +19,5 @@ __all__ = [
     "QuestionnaireSubmission",
     "QuestionnaireResponseOut",
     "QuestionnaireSubmissionResult",
+    "DataProcessingResponse",
 ]
